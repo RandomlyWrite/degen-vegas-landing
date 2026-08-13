@@ -1,5 +1,5 @@
-import { ArrowLeft, CircleDollarSign, Copy, Crown, Dices, ShieldCheck, Sparkles, WalletCards } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Bomb, CircleDollarSign, Copy, Crown, Dices, Flame, ShieldCheck, Sparkles, TimerReset, UsersRound, WalletCards } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { WalletSnapshot } from "@/lib/wallet";
 import { formatChain, shortAddress } from "@/lib/wallet";
 import {
@@ -14,7 +14,14 @@ import {
   type TelegramProfile,
 } from "@/lib/telegram";
 
-type GameId = "dice" | "roulette" | "craps";
+type GameId = "dice" | "roulette" | "craps" | "dont-splode";
+type SplodePhase = "lobby" | "armed" | "running" | "sploded";
+type SplodePlayer = {
+  id: string;
+  name: string;
+  active: boolean;
+  isLocal?: boolean;
+};
 
 type LoungeProps = {
   wallet: WalletSnapshot | null;
@@ -24,6 +31,9 @@ type LoungeProps = {
   onDisconnect: () => void;
 };
 
+const SPL0DE_BUY_IN = 100;
+const SPL0DE_PASS_FEE = 5;
+
 const GAME_OPTIONS: Array<{
   id: GameId;
   title: string;
@@ -32,6 +42,14 @@ const GAME_OPTIONS: Array<{
   accent: string;
   icon: typeof Dices;
 }> = [
+  {
+    id: "dont-splode",
+    title: "DON’T SPLODE",
+    eyebrow: "TABLE 99 / PVP FUSE",
+    description: "Hold the bomb, pass the blame, and pray the math likes someone else.",
+    accent: "danger",
+    icon: Bomb,
+  },
   {
     id: "dice",
     title: "HIGH / LOW DEGEN DICE",
@@ -58,22 +76,81 @@ const GAME_OPTIONS: Array<{
   },
 ];
 
+function makeSplodeLobby() {
+  return [
+    { id: "carlo", name: "Carlo.exe", active: true },
+    { id: "moon", name: "Moonboy", active: true },
+  ];
+}
+
+function nextSplodeHolder(players: SplodePlayer[], currentId: string) {
+  const currentIndex = players.findIndex((player) => player.id === currentId);
+  for (let offset = 1; offset <= players.length; offset += 1) {
+    const candidate = players[(currentIndex + offset) % players.length];
+    if (candidate?.active) return candidate.id;
+  }
+  return currentId;
+}
+
+function createServerSeed() {
+  const values = new Uint32Array(4);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(values);
+    return Array.from(values, (value) => value.toString(16).padStart(8, "0")).join("");
+  }
+  return `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
+}
+
+function createCrashPoint() {
+  return Math.round((1.45 + Math.random() * 4.8) * 100) / 100;
+}
+
+async function createCommitment(seed: string, crashPoint: number) {
+  const payload = `${seed}:${crashPoint.toFixed(2)}`;
+  if (globalThis.crypto?.subtle) {
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(payload));
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  return `preview-${payload.slice(0, 12)}`;
+}
+
 export default function Lounge({
   wallet,
   telegramProfile,
   onBack, onConnect, onDisconnect }: LoungeProps) {
-  const [selectedGame, setSelectedGame] = useState<GameId>("dice");
+  const [selectedGame, setSelectedGame] = useState<GameId>("dont-splode");
   const [progress, setProgress] = useState<PlayerProgress>(() => createDefaultPlayerProgress());
   const [hydrating, setHydrating] = useState(true);
-  const [lastResult, setLastResult] = useState("The house is watching.");
+  const [lastResult, setLastResult] = useState("Table 99 is accepting bad decisions.");
   const [diceCall, setDiceCall] = useState<"high" | "low">("high");
   const [rouletteColor, setRouletteColor] = useState<"red" | "black">("red");
   const [history, setHistory] = useState<string[]>(["You walked in with 250 demo chips."]);
+
+  const [splodePhase, setSplodePhase] = useState<SplodePhase>("lobby");
+  const [splodePlayers, setSplodePlayers] = useState<SplodePlayer[]>(() => makeSplodeLobby());
+  const [splodeLobbySeconds, setSplodeLobbySeconds] = useState(60);
+  const [splodeHolderId, setSplodeHolderId] = useState("carlo");
+  const [splodeMultiplier, setSplodeMultiplier] = useState(1);
+  const [splodePot, setSplodePot] = useState(SPL0DE_BUY_IN * 2);
+  const [splodePasses, setSplodePasses] = useState(0);
+  const [splodeLocalPasses, setSplodeLocalPasses] = useState(0);
+  const [splodeSeed, setSplodeSeed] = useState<string | null>(null);
+  const [splodeCommitment, setSplodeCommitment] = useState<string | null>(null);
+  const [splodeCrashPoint, setSplodeCrashPoint] = useState<number | null>(null);
+  const [splodeEliminated, setSplodeEliminated] = useState<SplodePlayer | null>(null);
 
   const currentGame = useMemo(
     () => GAME_OPTIONS.find((game) => game.id === selectedGame) ?? GAME_OPTIONS[0],
     [selectedGame],
   );
+  const splodeHolder = useMemo(
+    () => splodePlayers.find((player) => player.id === splodeHolderId) ?? splodePlayers[0],
+    [splodeHolderId, splodePlayers],
+  );
+  const splodeLocalJoined = splodePlayers.some((player) => player.isLocal);
+  const splodeActivePlayers = splodePlayers.filter((player) => player.active);
+  const displayedSplodePot = splodePhase === "lobby" ? splodePlayers.length * SPL0DE_BUY_IN : splodePot;
+  const localName = telegramProfile ? telegramDisplayName(telegramProfile) : "You";
 
   useEffect(() => {
     let cancelled = false;
@@ -81,7 +158,7 @@ export default function Lounge({
     void loadPlayerProgress().then((saved) => {
       if (cancelled) return;
       setProgress(saved);
-      setLastResult(saved.stats.totalPlays > 0 ? `Welcome back. ${saved.stats.totalPlays} plays logged.` : "The house is watching.");
+      setLastResult(saved.stats.totalPlays > 0 ? `Welcome back. ${saved.stats.totalPlays} plays logged.` : "Table 99 is accepting bad decisions.");
       setHistory((items) => [`Progress loaded: ${saved.stats.totalPlays} plays logged.`, ...items].slice(0, 4));
       setHydrating(false);
     }).catch(() => {
@@ -101,7 +178,8 @@ export default function Lounge({
     setProgress(next);
     void savePlayerProgress(next);
     setLastResult(result);
-    addHistory(`${game.toUpperCase()}: ${result} (${delta > 0 ? "+" : ""}${delta} chips)`);
+    const gameLabel = game === "dontSplode" ? "DON’T SPLODE" : game.toUpperCase();
+    addHistory(`${gameLabel}: ${result} (${delta > 0 ? "+" : ""}${delta} chips)`);
   };
 
   const playDice = () => {
@@ -136,6 +214,124 @@ export default function Lounge({
     if (selectedGame === "craps") playCraps();
   };
 
+  const armDontSplode = useCallback(async () => {
+    if (splodePhase !== "lobby") return;
+    const seed = createServerSeed();
+    const crashPoint = createCrashPoint();
+    const commitment = await createCommitment(seed, crashPoint);
+    const localPlayer = splodePlayers.find((player) => player.isLocal);
+    setSplodeSeed(seed);
+    setSplodeCrashPoint(crashPoint);
+    setSplodeCommitment(commitment);
+    setSplodePot(splodePlayers.length * SPL0DE_BUY_IN);
+    setSplodeMultiplier(1);
+    setSplodePasses(0);
+    setSplodeLocalPasses(0);
+    setSplodeEliminated(null);
+    setSplodeHolderId(localPlayer?.id ?? splodePlayers[0]?.id ?? "carlo");
+    setSplodePhase("armed");
+    setLastResult("Commitment sealed. The bomb already knows something you do not.");
+  }, [splodePhase, splodePlayers]);
+
+  const joinDontSplode = () => {
+    if (splodePhase !== "lobby" || splodeLocalJoined) return;
+    if (progress.chips < SPL0DE_BUY_IN) {
+      setLastResult("You need 100 demo chips to buy a ticket to regret.");
+      return;
+    }
+    setSplodePlayers((players) => [...players, { id: "local", name: localName, active: true, isLocal: true }]);
+    setLastResult("Seat saved. The fuse is pretending not to notice you.");
+  };
+
+  const resetDontSplode = () => {
+    setSplodePhase("lobby");
+    setSplodePlayers(makeSplodeLobby());
+    setSplodeLobbySeconds(60);
+    setSplodeHolderId("carlo");
+    setSplodeMultiplier(1);
+    setSplodePot(SPL0DE_BUY_IN * 2);
+    setSplodePasses(0);
+    setSplodeLocalPasses(0);
+    setSplodeSeed(null);
+    setSplodeCommitment(null);
+    setSplodeCrashPoint(null);
+    setSplodeEliminated(null);
+    setLastResult("Fresh fuse. Same poor instincts.");
+  };
+
+  const passDontSplode = () => {
+    if (splodePhase !== "running" || splodeHolderId !== "local") return;
+    const nextHolder = nextSplodeHolder(splodePlayers, splodeHolderId);
+    setSplodeHolderId(nextHolder);
+    setSplodePot((pot) => pot + SPL0DE_PASS_FEE);
+    setSplodePasses((passes) => passes + 1);
+    setSplodeLocalPasses((passes) => passes + 1);
+    setLastResult(`You paid ${SPL0DE_PASS_FEE} chips to make this ${nextHolder === "carlo" ? "Carlo.exe" : "Moonboy"}'s problem.`);
+  };
+
+  useEffect(() => {
+    if (selectedGame !== "dont-splode" || splodePhase !== "lobby") return;
+    if (splodeLobbySeconds <= 0) {
+      void armDontSplode();
+      return;
+    }
+    const timer = window.setTimeout(() => setSplodeLobbySeconds((seconds) => Math.max(0, seconds - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [armDontSplode, selectedGame, splodeLobbySeconds, splodePhase]);
+
+  useEffect(() => {
+    if (splodePhase !== "armed") return;
+    const timer = window.setTimeout(() => setSplodePhase((phase) => phase === "armed" ? "running" : phase), 950);
+    return () => window.clearTimeout(timer);
+  }, [splodePhase]);
+
+  useEffect(() => {
+    if (splodePhase !== "running" || !splodeCrashPoint) return;
+    const ticker = window.setTimeout(() => {
+      setSplodeMultiplier((multiplier) => Math.min(
+        splodeCrashPoint,
+        Math.round((multiplier + 0.17 + Math.random() * 0.15) * 100) / 100,
+      ));
+    }, 1650);
+    return () => window.clearTimeout(ticker);
+  }, [splodeCrashPoint, splodeMultiplier, splodePhase]);
+
+  useEffect(() => {
+    if (splodePhase !== "running" || splodeHolderId === "local") return;
+    const botTurn = window.setTimeout(() => {
+      const player = splodePlayers.find((candidate) => candidate.id === splodeHolderId);
+      const nextHolder = nextSplodeHolder(splodePlayers, splodeHolderId);
+      setSplodeHolderId(nextHolder);
+      setSplodePot((pot) => pot + SPL0DE_PASS_FEE);
+      setSplodePasses((passes) => passes + 1);
+      setLastResult(`${player?.name ?? "A panicked degen"} paid ${SPL0DE_PASS_FEE} chips and shoved the bomb onward.`);
+    }, 1050);
+    return () => window.clearTimeout(botTurn);
+  }, [splodeHolderId, splodePhase, splodePlayers]);
+
+  useEffect(() => {
+    if (splodePhase !== "running" || !splodeCrashPoint || splodeMultiplier < splodeCrashPoint) return;
+    const eliminated = splodePlayers.find((player) => player.id === splodeHolderId);
+    const localWasEliminated = eliminated?.isLocal ?? false;
+    const survivorCount = Math.max(1, splodeActivePlayers.length - 1);
+    const localPayout = Math.floor(splodePot / survivorCount) - SPL0DE_BUY_IN - splodeLocalPasses * SPL0DE_PASS_FEE;
+    const localLoss = -SPL0DE_BUY_IN - splodeLocalPasses * SPL0DE_PASS_FEE;
+    setSplodePlayers((players) => players.map((player) => player.id === splodeHolderId ? { ...player, active: false } : player));
+    setSplodeEliminated(eliminated ?? null);
+    setSplodePhase("sploded");
+    if (splodeLocalJoined) {
+      const result = localWasEliminated
+        ? `KABOOM — you were holding it at ${splodeCrashPoint.toFixed(2)}x.`
+        : `KABOOM — ${eliminated?.name ?? "someone else"} ate the fuse. You survived.`;
+      commitGameResult("dontSplode", !localWasEliminated, localWasEliminated ? localLoss : localPayout, result);
+    } else {
+      setLastResult(`KABOOM — ${eliminated?.name ?? "someone"} was holding it at ${splodeCrashPoint.toFixed(2)}x.`);
+      addHistory(`DON’T SPLODE: ${eliminated?.name ?? "A spectator"} found the crash point.`);
+    }
+  }, [splodeActivePlayers.length, splodeCrashPoint, splodeHolderId, splodeLocalJoined, splodeLocalPasses, splodeMultiplier, splodePhase, splodePlayers, splodePot]);
+
+  const formatLobbyTimer = `${String(Math.floor(splodeLobbySeconds / 60)).padStart(2, "0")}:${String(splodeLobbySeconds % 60).padStart(2, "0")}`;
+
   return (
     <main className="lounge-page">
       <div className="lounge-noise" aria-hidden="true" />
@@ -144,7 +340,8 @@ export default function Lounge({
           <ArrowLeft size={16} /> LEAVE THE DOOR
         </button>
         <div className="lounge-brand">
-          <span>DEGEN VEGAS</span>
+          <span className="lounge-brand__corner" aria-hidden="true">Q♣</span>
+          <span className="lounge-brand__wordmark">DEGEN <i>VEGAS</i></span>
           <small>THE LOUNGE / PLAYER TABLES</small>
         </div>
         <div className="lounge-account">
@@ -179,7 +376,7 @@ export default function Lounge({
         <div>
           <p className="lounge-kicker">AFTER HOURS / 00:13 AM</p>
           <h1>THE LOUNGE</h1>
-          <p className="lounge-copy">Three tables. One questionable decision at a time.</p>
+          <p className="lounge-copy">Four tables. One questionable decision at a time.</p>
         </div>
         <div className="lounge-stat-block">
           <span>DEMO CHIP STACK</span>
@@ -201,7 +398,7 @@ export default function Lounge({
 
       <section className="table-layout">
         <div className="game-list" aria-label="Available game tables">
-          <div className="section-label"><span>OPEN TABLES</span><span>03 ACTIVE</span></div>
+          <div className="section-label"><span>OPEN TABLES</span><span>{String(GAME_OPTIONS.length).padStart(2, "0")} ACTIVE</span></div>
           {GAME_OPTIONS.map((game) => {
             const Icon = game.icon;
             const isSelected = selectedGame === game.id;
@@ -212,7 +409,7 @@ export default function Lounge({
                 type="button"
                 onClick={() => {
                   setSelectedGame(game.id);
-                  setLastResult("The dealer resets the table.");
+                  if (game.id !== "dont-splode") setLastResult("The dealer resets the table.");
                 }}
                 aria-pressed={isSelected}
               >
@@ -231,17 +428,89 @@ export default function Lounge({
         <section className={`game-console game-console--${currentGame.accent}`} aria-live="polite">
           <div className="console-topline">
             <span>{currentGame.eyebrow}</span>
-            <span className="console-live"><i /> LIVE DEMO TABLE</span>
+            <span className="console-live"><i /> {selectedGame === "dont-splode" ? "SINGLE-MESSAGE MODE" : "LIVE DEMO TABLE"}</span>
           </div>
           <div className="console-title-row">
             <div>
-              <p className="console-kicker">HOUSE RULES / {selectedGame === "dice" ? "CALL IT BEFORE THE ROLL" : selectedGame === "roulette" ? "THE WHEEL DOES NOT APOLOGIZE" : "THE HOUSE ALWAYS WINS"}</p>
+              <p className="console-kicker">HOUSE RULES / {selectedGame === "dont-splode" ? "PASS THE BOMB. DON’T PASS AWAY." : selectedGame === "dice" ? "CALL IT BEFORE THE ROLL" : selectedGame === "roulette" ? "THE WHEEL DOES NOT APOLOGIZE" : "THE HOUSE ALWAYS WINS"}</p>
               <h2>{currentGame.title}</h2>
             </div>
-            <ShieldCheck size={24} />
+            {selectedGame === "dont-splode" ? <Flame size={24} /> : <ShieldCheck size={24} />}
           </div>
 
           <div className="game-stage">
+            {selectedGame === "dont-splode" && (
+              <div className={`splode-stage splode-stage--${splodePhase}`}>
+                <div className="splode-proof-row">
+                  <span><ShieldCheck size={13} /> {splodeCommitment ? "CRASH COMMIT SEALED" : "FAIRNESS COMMIT PENDING"}</span>
+                  <strong>{splodeCommitment ? `${splodeCommitment.slice(0, 14)}…${splodeCommitment.slice(-8)}` : "LOCKS WITH THE FUSE"}</strong>
+                </div>
+
+                <div className="splode-arena">
+                  <div className="splode-fuse-line" aria-hidden="true" />
+                  <div className="splode-gremlin" aria-hidden="true">
+                    <span>◉</span><span>◉</span><i>⌣</i>
+                  </div>
+                  <div className={`splode-bomb ${splodePhase === "sploded" ? "splode-bomb--gone" : ""}`} aria-hidden="true">
+                    <span className="splode-spark">✦</span>
+                    <Bomb size={44} strokeWidth={1.45} />
+                  </div>
+                  <div className="splode-meter">
+                    <span>{splodePhase === "lobby" ? "POT" : splodePhase === "sploded" ? "CRASHED" : "FUSE"}</span>
+                    <strong>{splodePhase === "lobby" ? `${displayedSplodePot} ⬡` : `${splodeMultiplier.toFixed(2)}x`}</strong>
+                  </div>
+                  <div className="splode-seats" aria-label="Current Don’t Splode players">
+                    {splodePlayers.map((player) => (
+                      <span className={`splode-seat ${player.id === splodeHolderId && splodePhase !== "lobby" ? "splode-seat--holder" : ""} ${!player.active ? "splode-seat--out" : ""}`} key={player.id}>
+                        {player.isLocal ? "YOU" : player.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                {splodePhase === "lobby" && (
+                  <div className="splode-lobby-copy">
+                    <span><UsersRound size={15} /> {splodePlayers.length}/6 DEGENS IN THE BLAST RADIUS</span>
+                    <strong>Lobby locks in {formatLobbyTimer}</strong>
+                    <p>One message, zero chat clutter. The commitment posts before the fuse moves.</p>
+                    <div className="splode-action-row">
+                      <button className="splode-join-button" type="button" onClick={joinDontSplode} disabled={splodeLocalJoined || hydrating}>
+                        {splodeLocalJoined ? "SEAT SAVED" : `JOIN · ${SPL0DE_BUY_IN} ⬡`}
+                      </button>
+                      {splodeLocalJoined && <button className="splode-ghost-button" type="button" onClick={() => void armDontSplode()}>LIGHT FUSE</button>}
+                    </div>
+                  </div>
+                )}
+
+                {splodePhase === "armed" && (
+                  <div className="splode-status-copy">
+                    <TimerReset size={17} />
+                    <strong>Commitment live. Fuse lighting…</strong>
+                    <p>The crash point is fixed. Your alibi is not.</p>
+                  </div>
+                )}
+
+                {splodePhase === "running" && (
+                  <div className="splode-status-copy splode-status-copy--live">
+                    <span className="splode-holder-line">💣 {splodeHolder?.isLocal ? "YOU HOLD THE BOMB" : `${splodeHolder?.name ?? "Someone"} HOLDS THE BOMB`}</span>
+                    <p>Each pass costs {SPL0DE_PASS_FEE} ⬡ and fattens the pot. {splodePasses} passes so far.</p>
+                    <button className="splode-pass-button" type="button" onClick={passDontSplode} disabled={splodeHolderId !== "local"}>
+                      {splodeHolderId === "local" ? `PASS IT · ${SPL0DE_PASS_FEE} ⬡` : "WAIT FOR THE BOMB"}
+                    </button>
+                  </div>
+                )}
+
+                {splodePhase === "sploded" && (
+                  <div className="splode-reveal">
+                    <strong>KABOOM. {splodeEliminated?.isLocal ? "YOU SPLODED." : `${splodeEliminated?.name ?? "A degen"} SPLODED.`}</strong>
+                    <p>Server seed: <code>{splodeSeed}</code></p>
+                    <p>Crash point: <code>{splodeCrashPoint?.toFixed(2)}x</code> · SHA-256(seed:crash): <code>{splodeCommitment}</code></p>
+                    <button className="splode-join-button" type="button" onClick={resetDontSplode}>RUN IT BACK</button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {selectedGame === "dice" && (
               <div className="dice-stage">
                 <div className="dice-cube">{lastResult.match(/^\d+/)?.[0] ?? "?"}</div>
@@ -277,9 +546,11 @@ export default function Lounge({
           </div>
 
           <div className="console-result"><span>LAST CALL</span><strong>{lastResult}</strong></div>
-          <button className="roll-button" type="button" onClick={playCurrentGame} disabled={hydrating}>
-            <CircleDollarSign size={18} /> PLAY FOR DEMO CHIPS
-          </button>
+          {selectedGame !== "dont-splode" && (
+            <button className="roll-button" type="button" onClick={playCurrentGame} disabled={hydrating}>
+              <CircleDollarSign size={18} /> PLAY FOR DEMO CHIPS
+            </button>
+          )}
         </section>
       </section>
 
