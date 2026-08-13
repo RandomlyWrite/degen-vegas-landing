@@ -1,8 +1,18 @@
 import { ArrowLeft, CircleDollarSign, Copy, Crown, Dices, ShieldCheck, Sparkles, WalletCards } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { WalletSnapshot } from "@/lib/wallet";
 import { formatChain, shortAddress } from "@/lib/wallet";
-import { telegramDisplayName, telegramInitials, type TelegramProfile } from "@/lib/telegram";
+import {
+  applyGameResult,
+  createDefaultPlayerProgress,
+  loadPlayerProgress,
+  savePlayerProgress,
+  telegramDisplayName,
+  telegramInitials,
+  type GameKey,
+  type PlayerProgress,
+  type TelegramProfile,
+} from "@/lib/telegram";
 
 type GameId = "dice" | "roulette" | "craps";
 
@@ -53,7 +63,8 @@ export default function Lounge({
   telegramProfile,
   onBack, onConnect, onDisconnect }: LoungeProps) {
   const [selectedGame, setSelectedGame] = useState<GameId>("dice");
-  const [chips, setChips] = useState(250);
+  const [progress, setProgress] = useState<PlayerProgress>(() => createDefaultPlayerProgress());
+  const [hydrating, setHydrating] = useState(true);
   const [lastResult, setLastResult] = useState("The house is watching.");
   const [diceCall, setDiceCall] = useState<"high" | "low">("high");
   const [rouletteColor, setRouletteColor] = useState<"red" | "black">("red");
@@ -64,18 +75,41 @@ export default function Lounge({
     [selectedGame],
   );
 
+  useEffect(() => {
+    let cancelled = false;
+    setHydrating(true);
+    void loadPlayerProgress().then((saved) => {
+      if (cancelled) return;
+      setProgress(saved);
+      setLastResult(saved.stats.totalPlays > 0 ? `Welcome back. ${saved.stats.totalPlays} plays logged.` : "The house is watching.");
+      setHistory((items) => [`Progress loaded: ${saved.stats.totalPlays} plays logged.`, ...items].slice(0, 4));
+      setHydrating(false);
+    }).catch(() => {
+      if (!cancelled) setHydrating(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [telegramProfile?.id]);
+
   const addHistory = (message: string) => {
     setHistory((items) => [message, ...items].slice(0, 4));
+  };
+
+  const commitGameResult = (game: GameKey, won: boolean, delta: number, result: string) => {
+    const next = applyGameResult(progress, game, won, delta);
+    setProgress(next);
+    void savePlayerProgress(next);
+    setLastResult(result);
+    addHistory(`${game.toUpperCase()}: ${result} (${delta > 0 ? "+" : ""}${delta} chips)`);
   };
 
   const playDice = () => {
     const roll = 1 + Math.floor(Math.random() * 6) + (1 + Math.floor(Math.random() * 6));
     const won = diceCall === "high" ? roll >= 8 : roll <= 6;
     const delta = won ? 25 : -15;
-    setChips((value) => Math.max(0, value + delta));
     const result = `${roll} — ${won ? "YOU GOT LUCKY. DISGUSTING." : "THE HOUSE REMEMBERS."}`;
-    setLastResult(result);
-    addHistory(`High / Low: ${result} (${delta > 0 ? "+" : ""}${delta} chips)`);
+    commitGameResult("dice", won, delta, result);
   };
 
   const playRoulette = () => {
@@ -84,20 +118,16 @@ export default function Lounge({
     const color = roll === 0 ? "green" : isRed ? "red" : "black";
     const won = color === rouletteColor;
     const delta = won ? 40 : -20;
-    setChips((value) => Math.max(0, value + delta));
     const result = `${roll} / ${color.toUpperCase()} — ${won ? "THE WHEEL LIKES YOU." : "THE WHEEL HAS TASTE."}`;
-    setLastResult(result);
-    addHistory(`Neon Roulette: ${result} (${delta > 0 ? "+" : ""}${delta} chips)`);
+    commitGameResult("roulette", won, delta, result);
   };
 
   const playCraps = () => {
     const roll = 2 + Math.floor(Math.random() * 11);
     const won = roll === 7 || roll === 11;
     const delta = won ? 35 : roll === 2 || roll === 12 ? -30 : -10;
-    setChips((value) => Math.max(0, value + delta));
     const result = `${roll} — ${won ? "NATURAL. THE TABLE IS OFFENDED." : "NO NATURAL. KEEP WALKING."}`;
-    setLastResult(result);
-    addHistory(`Rekt Craps: ${result} (${delta > 0 ? "+" : ""}${delta} chips)`);
+    commitGameResult("craps", won, delta, result);
   };
 
   const playCurrentGame = () => {
@@ -153,8 +183,8 @@ export default function Lounge({
         </div>
         <div className="lounge-stat-block">
           <span>DEMO CHIP STACK</span>
-          <strong>{chips}</strong>
-          <small>VIRTUAL ONLY / NO ON-CHAIN WAGERING</small>
+          <strong>{progress.chips}</strong>
+          <small>{hydrating ? "LOADING PLAYER LEDGER…" : `${progress.stats.totalPlays} PLAYS / VIRTUAL ONLY`}</small>
         </div>
       </section>
 
@@ -247,7 +277,7 @@ export default function Lounge({
           </div>
 
           <div className="console-result"><span>LAST CALL</span><strong>{lastResult}</strong></div>
-          <button className="roll-button" type="button" onClick={playCurrentGame}>
+          <button className="roll-button" type="button" onClick={playCurrentGame} disabled={hydrating}>
             <CircleDollarSign size={18} /> PLAY FOR DEMO CHIPS
           </button>
         </section>

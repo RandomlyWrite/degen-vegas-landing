@@ -1,8 +1,7 @@
 /*
- * Telegram WebApp profile bridge.
- * The official Telegram script is loaded from client/index.html. In a normal
- * browser preview, this helper returns null and the lounge shows a visitor
- * fallback instead of blocking the experience.
+ * Telegram WebApp profile and CloudStorage bridge.
+ * Telegram mode persists virtual player progress per user through CloudStorage.
+ * Ordinary browser previews fall back to localStorage under the same profile key.
  */
 
 export type TelegramProfile = {
@@ -23,6 +22,13 @@ type TelegramUser = {
   photo_url?: string;
 };
 
+type StorageCallback = (error: unknown, value?: string | boolean) => void;
+
+type TelegramCloudStorage = {
+  setItem: (key: string, value: string, callback?: StorageCallback) => TelegramCloudStorage;
+  getItem: (key: string, callback: (error: unknown, value?: string) => void) => TelegramCloudStorage;
+};
+
 type TelegramWebApp = {
   ready: () => void;
   expand: () => void;
@@ -31,12 +37,89 @@ type TelegramWebApp = {
   setBackgroundColor?: (color: string) => void;
   initData?: string;
   initDataUnsafe?: { user?: TelegramUser };
+  CloudStorage?: TelegramCloudStorage;
 };
 
 declare global {
   interface Window {
     Telegram?: { WebApp?: TelegramWebApp };
   }
+}
+
+export const PLAYER_STORAGE_KEY = "degen_vegas_profile_v1";
+export type GameKey = "dice" | "roulette" | "craps";
+
+export type GameStat = {
+  plays: number;
+  wins: number;
+  losses: number;
+  netChips: number;
+};
+
+export type PlayerStats = {
+  totalPlays: number;
+  totalWins: number;
+  totalLosses: number;
+  lastPlayedAt: number | null;
+  dice: GameStat;
+  roulette: GameStat;
+  craps: GameStat;
+};
+
+export type PlayerProgress = {
+  chips: number;
+  stats: PlayerStats;
+};
+
+function freshGameStat(): GameStat {
+  return { plays: 0, wins: 0, losses: 0, netChips: 0 };
+}
+
+export function createDefaultPlayerProgress(): PlayerProgress {
+  return {
+    chips: 250,
+    stats: {
+      totalPlays: 0,
+      totalWins: 0,
+      totalLosses: 0,
+      lastPlayedAt: null,
+      dice: freshGameStat(),
+      roulette: freshGameStat(),
+      craps: freshGameStat(),
+    },
+  };
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function normalizeGameStat(value: unknown): GameStat {
+  const input = value && typeof value === "object" ? value as Partial<GameStat> : {};
+  return {
+    plays: isFiniteNumber(input.plays) ? Math.max(0, Math.floor(input.plays)) : 0,
+    wins: isFiniteNumber(input.wins) ? Math.max(0, Math.floor(input.wins)) : 0,
+    losses: isFiniteNumber(input.losses) ? Math.max(0, Math.floor(input.losses)) : 0,
+    netChips: isFiniteNumber(input.netChips) ? Math.round(input.netChips) : 0,
+  };
+}
+
+export function normalizePlayerProgress(value: unknown): PlayerProgress {
+  const fallback = createDefaultPlayerProgress();
+  const input = value && typeof value === "object" ? value as Partial<PlayerProgress> : {};
+  const rawStats = input.stats && typeof input.stats === "object" ? input.stats as Partial<PlayerStats> : {};
+  return {
+    chips: isFiniteNumber(input.chips) ? Math.max(0, Math.round(input.chips)) : fallback.chips,
+    stats: {
+      totalPlays: isFiniteNumber(rawStats.totalPlays) ? Math.max(0, Math.floor(rawStats.totalPlays)) : 0,
+      totalWins: isFiniteNumber(rawStats.totalWins) ? Math.max(0, Math.floor(rawStats.totalWins)) : 0,
+      totalLosses: isFiniteNumber(rawStats.totalLosses) ? Math.max(0, Math.floor(rawStats.totalLosses)) : 0,
+      lastPlayedAt: isFiniteNumber(rawStats.lastPlayedAt) ? rawStats.lastPlayedAt : null,
+      dice: normalizeGameStat(rawStats.dice),
+      roulette: normalizeGameStat(rawStats.roulette),
+      craps: normalizeGameStat(rawStats.craps),
+    },
+  };
 }
 
 function mapUser(user: TelegramUser): TelegramProfile {
@@ -63,6 +146,105 @@ export function initTelegram(): TelegramProfile | null {
 
   const user = webApp.initDataUnsafe?.user;
   return user ? mapUser(user) : null;
+}
+
+function getTelegramCloudStorage() {
+  if (typeof window === "undefined") return null;
+  return window.Telegram?.WebApp?.CloudStorage ?? null;
+}
+
+function readBrowserProgress(): PlayerProgress {
+  if (typeof window === "undefined") return createDefaultPlayerProgress();
+  try {
+    const raw = window.localStorage.getItem(PLAYER_STORAGE_KEY);
+    return raw ? normalizePlayerProgress(JSON.parse(raw)) : createDefaultPlayerProgress();
+  } catch {
+    return createDefaultPlayerProgress();
+  }
+}
+
+function writeBrowserProgress(progress: PlayerProgress) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify(progress));
+  } catch {
+    // Storage can be unavailable in private browsing; the in-memory session still works.
+  }
+}
+
+function readTelegramProgress(storage: TelegramCloudStorage) {
+  return new Promise<PlayerProgress>((resolve, reject) => {
+    storage.getItem(PLAYER_STORAGE_KEY, (error, value) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      if (!value) {
+        resolve(createDefaultPlayerProgress());
+        return;
+      }
+      try {
+        resolve(normalizePlayerProgress(JSON.parse(value)));
+      } catch {
+        resolve(createDefaultPlayerProgress());
+      }
+    });
+  });
+}
+
+function writeTelegramProgress(storage: TelegramCloudStorage, progress: PlayerProgress) {
+  return new Promise<void>((resolve, reject) => {
+    storage.setItem(PLAYER_STORAGE_KEY, JSON.stringify(progress), (error, stored) => {
+      if (error || stored === false) {
+        reject(error ?? new Error("Telegram CloudStorage did not confirm the write."));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+export async function loadPlayerProgress(): Promise<PlayerProgress> {
+  const cloudStorage = getTelegramCloudStorage();
+  if (cloudStorage) {
+    try {
+      return await readTelegramProgress(cloudStorage);
+    } catch {
+      return readBrowserProgress();
+    }
+  }
+  return readBrowserProgress();
+}
+
+export async function savePlayerProgress(progress: PlayerProgress): Promise<"telegram" | "browser"> {
+  const normalized = normalizePlayerProgress(progress);
+  const cloudStorage = getTelegramCloudStorage();
+  if (cloudStorage) {
+    try {
+      await writeTelegramProgress(cloudStorage, normalized);
+      return "telegram";
+    } catch {
+      writeBrowserProgress(normalized);
+      return "browser";
+    }
+  }
+  writeBrowserProgress(normalized);
+  return "browser";
+}
+
+export function applyGameResult(progress: PlayerProgress, game: GameKey, won: boolean, delta: number): PlayerProgress {
+  const next = normalizePlayerProgress(progress);
+  const gameStats = next.stats[game];
+  gameStats.plays += 1;
+  gameStats.wins += won ? 1 : 0;
+  gameStats.losses += won ? 0 : 1;
+  gameStats.netChips += delta;
+  next.stats.totalPlays += 1;
+  next.stats.totalWins += won ? 1 : 0;
+  next.stats.totalLosses += won ? 0 : 1;
+  next.stats.lastPlayedAt = Date.now();
+  next.chips = Math.max(0, next.chips + delta);
+  return next;
 }
 
 export function telegramDisplayName(profile: TelegramProfile | null) {
