@@ -1,5 +1,7 @@
 import { Volume2, VolumeX, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import Lounge from "@/pages/Lounge";
+import { connectWallet, readWalletSnapshot, type WalletSnapshot } from "@/lib/wallet";
 
 /**
  * DEGEN VEGAS — Reference-matched landing page
@@ -9,9 +11,39 @@ import { useEffect, useState } from "react";
 
 const REFERENCE_ARTWORK = "/manus-storage/degen-vegas-reference_3873d095.png";
 
+type DialogKind = "fairness" | null;
+
 export default function Home() {
   const [soundEnabled, setSoundEnabled] = useState(false);
-  const [dialog, setDialog] = useState<"fairness" | "lounge" | null>(null);
+  const [dialog, setDialog] = useState<DialogKind>(null);
+  const [inLounge, setInLounge] = useState(false);
+  const [wallet, setWallet] = useState<WalletSnapshot | null>(null);
+  const [walletError, setWalletError] = useState("");
+
+  useEffect(() => {
+    void readWalletSnapshot().then(setWallet).catch(() => setWallet(null));
+
+    const provider = typeof window !== "undefined" ? window.ethereum : undefined;
+    if (!provider?.on) return;
+
+    const handleAccountsChanged = (accounts: unknown) => {
+      if (!Array.isArray(accounts) || !accounts[0]) {
+        setWallet(null);
+        return;
+      }
+      void readWalletSnapshot().then(setWallet).catch(() => setWallet(null));
+    };
+    const handleChainChanged = () => {
+      void readWalletSnapshot().then(setWallet).catch(() => setWallet(null));
+    };
+
+    provider.on("accountsChanged", handleAccountsChanged);
+    provider.on("chainChanged", handleChainChanged);
+    return () => {
+      provider.removeListener?.("accountsChanged", handleAccountsChanged);
+      provider.removeListener?.("chainChanged", handleChainChanged);
+    };
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -21,6 +53,32 @@ export default function Home() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  const handleConnectWallet = async () => {
+    setWalletError("");
+    try {
+      const snapshot = await connectWallet();
+      setWallet(snapshot);
+    } catch (error) {
+      setWalletError(error instanceof Error ? error.message : "Wallet connection was cancelled.");
+    }
+  };
+
+  const handleEnterLounge = () => {
+    setDialog(null);
+    setInLounge(true);
+  };
+
+  if (inLounge) {
+    return (
+      <Lounge
+        wallet={wallet}
+        onBack={() => setInLounge(false)}
+        onConnect={handleConnectWallet}
+        onDisconnect={() => setWallet(null)}
+      />
+    );
+  }
 
   return (
     <main className="dv-page">
@@ -59,7 +117,7 @@ export default function Home() {
             className="action-hotspot action-hotspot--enter"
             type="button"
             aria-label="Enter the lounge"
-            onClick={() => setDialog("lounge")}
+            onClick={handleEnterLounge}
           >
             <span className="sr-only">Enter the lounge</span>
           </button>
@@ -71,6 +129,13 @@ export default function Home() {
           <span className="preview-hint__chevrons">««</span>
         </div>
       </section>
+
+      {walletError && (
+        <div className="wallet-toast" role="status">
+          <span>{walletError}</span>
+          <button type="button" onClick={() => setWalletError("")} aria-label="Dismiss wallet error"><X size={15} /></button>
+        </div>
+      )}
 
       {dialog && (
         <div className="dialog-backdrop" role="presentation" onClick={() => setDialog(null)}>
@@ -85,14 +150,10 @@ export default function Home() {
               <X size={18} />
             </button>
             <p className="dialog-kicker">DEGEN VEGAS / MINI APP</p>
-            <h2 id="dialog-title">{dialog === "fairness" ? "Verify the house." : "The lounge is waiting."}</h2>
-            <p>
-              {dialog === "fairness"
-                ? "Fairness verification is staged here as the front-end entry point. Connect the game verifier when the lounge backend is ready."
-                : "Lounge entry is wired as an interactive front-end state. Connect the Telegram mini app route when the game room is ready."}
-            </p>
+            <h2 id="dialog-title">VERIFY THE HOUSE.</h2>
+            <p>Fairness verification is staged here as the front-end entry point. Connect the game verifier when the lounge backend is ready.</p>
             <button className="dialog-action" type="button" onClick={() => setDialog(null)}>
-              {dialog === "fairness" ? "BACK TO THE DOOR" : "KEEP ME OUTSIDE"}
+              BACK TO THE DOOR
             </button>
           </section>
         </div>
@@ -101,11 +162,4 @@ export default function Home() {
   );
 }
 
-function _referenceAssetForBundlers() {
-  return REFERENCE_ARTWORK;
-}
-
-void _referenceAssetForBundlers;
-
 export { REFERENCE_ARTWORK };
-export { Home };
