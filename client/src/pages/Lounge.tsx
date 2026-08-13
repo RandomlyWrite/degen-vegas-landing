@@ -1,4 +1,4 @@
-import { ArrowLeft, Bomb, CircleDollarSign, Copy, Crown, Dices, Flame, ShieldCheck, Sparkles, TimerReset, UsersRound, WalletCards } from "lucide-react";
+import { ArrowLeft, Bomb, CircleDollarSign, Copy, Crown, Dices, Flame, History, ShieldCheck, Sparkles, TimerReset, UsersRound, WalletCards, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { WalletSnapshot } from "@/lib/wallet";
 import { formatChain, shortAddress } from "@/lib/wallet";
@@ -21,6 +21,16 @@ type SplodePlayer = {
   name: string;
   active: boolean;
   isLocal?: boolean;
+};
+
+type FairnessRound = {
+  id: string;
+  commitment: string;
+  serverSeed: string;
+  crashPoint: number;
+  pot: number;
+  passes: number;
+  eliminated: string;
 };
 
 type LoungeProps = {
@@ -138,6 +148,11 @@ export default function Lounge({
   const [splodeCommitment, setSplodeCommitment] = useState<string | null>(null);
   const [splodeCrashPoint, setSplodeCrashPoint] = useState<number | null>(null);
   const [splodeEliminated, setSplodeEliminated] = useState<SplodePlayer | null>(null);
+  const [fairnessHistory, setFairnessHistory] = useState<FairnessRound[]>([]);
+  const [isFairnessDrawerOpen, setFairnessDrawerOpen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("fairness") === "history";
+  });
 
   const currentGame = useMemo(
     () => GAME_OPTIONS.find((game) => game.id === selectedGame) ?? GAME_OPTIONS[0],
@@ -168,6 +183,13 @@ export default function Lounge({
       cancelled = true;
     };
   }, [telegramProfile?.id]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("fairness") === "history") {
+      setFairnessDrawerOpen(true);
+    }
+  }, []);
 
   const addHistory = (message: string) => {
     setHistory((items) => [message, ...items].slice(0, 4));
@@ -319,6 +341,17 @@ export default function Lounge({
     setSplodePlayers((players) => players.map((player) => player.id === splodeHolderId ? { ...player, active: false } : player));
     setSplodeEliminated(eliminated ?? null);
     setSplodePhase("sploded");
+    if (splodeCommitment && splodeSeed) {
+      setFairnessHistory((rounds) => [{
+        id: splodeCommitment,
+        commitment: splodeCommitment,
+        serverSeed: splodeSeed,
+        crashPoint: splodeCrashPoint,
+        pot: splodePot,
+        passes: splodePasses,
+        eliminated: eliminated?.isLocal ? "You" : eliminated?.name ?? "Unknown player",
+      }, ...rounds].slice(0, 8));
+    }
     if (splodeLocalJoined) {
       const result = localWasEliminated
         ? `KABOOM — you were holding it at ${splodeCrashPoint.toFixed(2)}x.`
@@ -328,7 +361,7 @@ export default function Lounge({
       setLastResult(`KABOOM — ${eliminated?.name ?? "someone"} was holding it at ${splodeCrashPoint.toFixed(2)}x.`);
       addHistory(`DON’T SPLODE: ${eliminated?.name ?? "A spectator"} found the crash point.`);
     }
-  }, [splodeActivePlayers.length, splodeCrashPoint, splodeHolderId, splodeLocalJoined, splodeLocalPasses, splodeMultiplier, splodePhase, splodePlayers, splodePot]);
+  }, [splodeActivePlayers.length, splodeCommitment, splodeCrashPoint, splodeHolderId, splodeLocalJoined, splodeLocalPasses, splodeMultiplier, splodePasses, splodePhase, splodePlayers, splodePot, splodeSeed]);
 
   const formatLobbyTimer = `${String(Math.floor(splodeLobbySeconds / 60)).padStart(2, "0")}:${String(splodeLobbySeconds % 60).padStart(2, "0")}`;
 
@@ -443,7 +476,12 @@ export default function Lounge({
               <div className={`splode-stage splode-stage--${splodePhase}`}>
                 <div className="splode-proof-row">
                   <span><ShieldCheck size={13} /> {splodeCommitment ? "CRASH COMMIT SEALED" : "FAIRNESS COMMIT PENDING"}</span>
-                  <strong>{splodeCommitment ? `${splodeCommitment.slice(0, 14)}…${splodeCommitment.slice(-8)}` : "LOCKS WITH THE FUSE"}</strong>
+                  <div className="splode-proof-actions">
+                    <strong>{splodeCommitment ? `${splodeCommitment.slice(0, 14)}…${splodeCommitment.slice(-8)}` : "LOCKS WITH THE FUSE"}</strong>
+                    <button className="splode-history-trigger" type="button" onClick={() => setFairnessDrawerOpen(true)} aria-haspopup="dialog">
+                      <History size={12} /> HISTORY {fairnessHistory.length ? `(${fairnessHistory.length})` : ""}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="splode-arena">
@@ -563,6 +601,46 @@ export default function Lounge({
           <Copy size={13} /> COPY PLAYER ID
         </button>
       </footer>
+
+      {isFairnessDrawerOpen && (
+        <div className="fairness-drawer-backdrop" role="presentation" onClick={() => setFairnessDrawerOpen(false)}>
+          <aside className="fairness-drawer" role="dialog" aria-modal="true" aria-labelledby="fairness-history-title" onClick={(event) => event.stopPropagation()}>
+            <div className="fairness-drawer__header">
+              <div>
+                <p>TABLE 99 / RECEIPT BOOK</p>
+                <h2 id="fairness-history-title">FAIRNESS HISTORY</h2>
+              </div>
+              <button className="fairness-drawer__close" type="button" onClick={() => setFairnessDrawerOpen(false)} aria-label="Close fairness history"><X size={16} /></button>
+            </div>
+            <p className="fairness-drawer__intro">Every completed round exposes the values that were committed before the fuse moved. Keep the receipt; blame the bomb.</p>
+
+            {fairnessHistory.length === 0 ? (
+              <div className="fairness-empty-state">
+                <ShieldCheck size={24} />
+                <strong>NO RECEIPTS YET.</strong>
+                <p>Finish one round and its commitment, server seed, and crash point will land here.</p>
+              </div>
+            ) : (
+              <ol className="fairness-round-list">
+                {fairnessHistory.map((round, index) => (
+                  <li className="fairness-round" key={round.id}>
+                    <div className="fairness-round__topline">
+                      <span>ROUND {String(fairnessHistory.length - index).padStart(2, "0")}</span>
+                      <strong>{round.crashPoint.toFixed(2)}x</strong>
+                    </div>
+                    <p><b>{round.eliminated}</b> found the crash point after {round.passes} pass{round.passes === 1 ? "" : "es"}. Pot: <b>{round.pot} ⬡</b>.</p>
+                    <dl>
+                      <div><dt>SHA-256 COMMITMENT</dt><dd>{round.commitment}</dd></div>
+                      <div><dt>SERVER SEED</dt><dd>{round.serverSeed}</dd></div>
+                      <div><dt>CRASH POINT</dt><dd>{round.crashPoint.toFixed(2)}x</dd></div>
+                    </dl>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </aside>
+        </div>
+      )}
     </main>
   );
 }
