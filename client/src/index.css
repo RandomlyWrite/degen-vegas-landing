@@ -1605,3 +1605,82 @@
 .transition-caption button:hover {
   background: #fff0d3;
 }
+
+/* Telegram player identity in the lounge header */
+.lounge-account {
+  display: flex;
+  align-items: center;
+  justify-self: end;
+  gap: 0.65rem;
+}
+
+.lounge-player {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  padding-right: 0.65rem;
+  border-right: 1px solid rgba(225, 171, 104, 0.23);
+}
+
+.lounge-player-avatar {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 50%;
+  object-fit: cover;
+  color: #171013;
+  background: linear-gradient(145deg, #f3d6a7, #b65e2e);
+  box-shadow: 0 0 0 1px rgba(255, 177, 91, 0.65), 0 0 14px rgba(255, 154, 60, 0.2);
+  font: 700 0.62rem / 1 'Courier Prime', monospace;
+}
+
+.lounge-player-avatar--fallback {
+  color: #20120d;
+}
+
+.lounge-player-copy {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.lounge-player-copy strong,
+.lounge-player-copy small {
+  overflow: hidden;
+  max-width: 8.5rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lounge-player-copy strong {
+  color: #f4e3c3;
+  font-size: 0.62rem;
+}
+
+.lounge-player-copy small {
+  color: rgba(243, 216, 169, 0.5);
+  font-size: 0.48rem;
+  letter-spacing: 0.08em;
+}
+
+@media (max-width: 820px) {
+  .lounge-account {
+    justify-self: stretch;
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 520px) {
+  .lounge-player-copy {
+    display: none;
+  }
+
+  .lounge-player {
+    padding-right: 0;
+    border-right: 0;
+  }
+}

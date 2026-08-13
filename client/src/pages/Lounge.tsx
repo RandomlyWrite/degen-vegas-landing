@@ -2,11 +2,13 @@ import { ArrowLeft, CircleDollarSign, Copy, Crown, Dices, ShieldCheck, Sparkles,
 import { useMemo, useState } from "react";
 import type { WalletSnapshot } from "@/lib/wallet";
 import { formatChain, shortAddress } from "@/lib/wallet";
+import { telegramDisplayName, telegramInitials, type TelegramProfile } from "@/lib/telegram";
 
 type GameId = "dice" | "roulette" | "craps";
 
 type LoungeProps = {
   wallet: WalletSnapshot | null;
+  telegramProfile: TelegramProfile | null;
   onBack: () => void;
   onConnect: () => void;
   onDisconnect: () => void;
@@ -46,7 +48,10 @@ const GAME_OPTIONS: Array<{
   },
 ];
 
-export default function Lounge({ wallet, onBack, onConnect, onDisconnect }: LoungeProps) {
+export default function Lounge({
+  wallet,
+  telegramProfile,
+  onBack, onConnect, onDisconnect }: LoungeProps) {
   const [selectedGame, setSelectedGame] = useState<GameId>("dice");
   const [chips, setChips] = useState(250);
   const [lastResult, setLastResult] = useState("The house is watching.");
@@ -112,18 +117,31 @@ export default function Lounge({ wallet, onBack, onConnect, onDisconnect }: Loun
           <span>DEGEN VEGAS</span>
           <small>THE LOUNGE / PLAYER TABLES</small>
         </div>
-        <div className="lounge-wallet">
-          {wallet ? (
-            <button className="wallet-pill wallet-pill--connected" type="button" onClick={onDisconnect} title="Disconnect wallet">
-              <span className="wallet-status-dot" />
-              <span>{shortAddress(wallet.address)}</span>
-              <small>{formatChain(wallet.chainId)}</small>
-            </button>
-          ) : (
-            <button className="wallet-pill" type="button" onClick={onConnect}>
-              <WalletCards size={15} /> CONNECT WALLET
-            </button>
-          )}
+        <div className="lounge-account">
+          <div className="lounge-player" title={telegramDisplayName(telegramProfile)}>
+            {telegramProfile?.photoUrl ? (
+              <img src={telegramProfile.photoUrl} alt="" className="lounge-player-avatar" />
+            ) : (
+              <span className="lounge-player-avatar lounge-player-avatar--fallback">{telegramInitials(telegramProfile)}</span>
+            )}
+            <span className="lounge-player-copy">
+              <strong>{telegramDisplayName(telegramProfile)}</strong>
+              <small>{telegramProfile ? "TELEGRAM PLAYER" : "BROWSER PREVIEW"}</small>
+            </span>
+          </div>
+          <div className="lounge-wallet">
+            {wallet ? (
+              <button className="wallet-pill wallet-pill--connected" type="button" onClick={onDisconnect} title="Disconnect wallet">
+                <span className="wallet-status-dot" />
+                <span>{shortAddress(wallet.address)}</span>
+                <small>{formatChain(wallet.chainId)}</small>
+              </button>
+            ) : (
+              <button className="wallet-pill" type="button" onClick={onConnect}>
+                <WalletCards size={15} /> CONNECT WALLET
+              </button>
+            )}
+          </div>
         </div>
       </header>
 

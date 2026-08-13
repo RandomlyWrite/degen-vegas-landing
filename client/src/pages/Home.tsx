@@ -2,6 +2,7 @@ import { Volume2, VolumeX, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import Lounge from "@/pages/Lounge";
 import { connectWallet, readWalletSnapshot, type WalletSnapshot } from "@/lib/wallet";
+import { initTelegram, type TelegramProfile } from "@/lib/telegram";
 
 const REFERENCE_ARTWORK = "/manus-storage/degen-vegas-reference_3873d095.png";
 const REFERENCE_VIDEO = "/manus-storage/_users_01912768-4157-4192-a5b0-0f6e69c96add_generated_e7395394-fd94-4575-b269-50289fb74e2e_generated_video_a082a15c.mp4";
@@ -14,6 +15,7 @@ export default function Home() {
   const [transitioning, setTransitioning] = useState(false);
   const [inLounge, setInLounge] = useState(false);
   const [wallet, setWallet] = useState<WalletSnapshot | null>(null);
+  const [telegramProfile, setTelegramProfile] = useState<TelegramProfile | null>(null);
   const [walletError, setWalletError] = useState("");
 
   useEffect(() => {
@@ -39,6 +41,10 @@ export default function Home() {
       provider.removeListener?.("accountsChanged", handleAccountsChanged);
       provider.removeListener?.("chainChanged", handleChainChanged);
     };
+  }, []);
+
+  useEffect(() => {
+    setTelegramProfile(initTelegram());
   }, []);
 
   useEffect(() => {
@@ -74,6 +80,7 @@ export default function Home() {
     return (
       <Lounge
         wallet={wallet}
+        telegramProfile={telegramProfile}
         onBack={() => {
           setInLounge(false);
           setTransitioning(false);
