@@ -1,0 +1,1 @@
+ffprobe -v error -select_streams v:0 -show_entries stream=width,height,r_frame_rate,duration -of default=noprint_wrappers=1 /home/ubuntu/upload/_users_01912768-4157-4192-a5b0-0f6e69c96add_generated_e7395394-fd94-4575-b269-50289fb74e2e_generated_video.mp4

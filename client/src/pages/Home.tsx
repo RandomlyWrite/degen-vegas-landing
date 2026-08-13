@@ -3,19 +3,15 @@ import { useEffect, useState } from "react";
 import Lounge from "@/pages/Lounge";
 import { connectWallet, readWalletSnapshot, type WalletSnapshot } from "@/lib/wallet";
 
-/**
- * DEGEN VEGAS — Reference-matched landing page
- * Design direction: rubber-hose noir, illustrated casino poster, card-frame composition.
- * The uploaded artwork is the visual ground truth; controls are layered as accessible HTML.
- */
-
 const REFERENCE_ARTWORK = "/manus-storage/degen-vegas-reference_3873d095.png";
+const REFERENCE_VIDEO = "/manus-storage/_users_01912768-4157-4192-a5b0-0f6e69c96add_generated_e7395394-fd94-4575-b269-50289fb74e2e_generated_video_a082a15c.mp4";
 
 type DialogKind = "fairness" | null;
 
 export default function Home() {
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [dialog, setDialog] = useState<DialogKind>(null);
+  const [transitioning, setTransitioning] = useState(false);
   const [inLounge, setInLounge] = useState(false);
   const [wallet, setWallet] = useState<WalletSnapshot | null>(null);
   const [walletError, setWalletError] = useState("");
@@ -66,6 +62,11 @@ export default function Home() {
 
   const handleEnterLounge = () => {
     setDialog(null);
+    setTransitioning(true);
+  };
+
+  const handleVideoEnded = () => {
+    setTransitioning(false);
     setInLounge(true);
   };
 
@@ -73,7 +74,10 @@ export default function Home() {
     return (
       <Lounge
         wallet={wallet}
-        onBack={() => setInLounge(false)}
+        onBack={() => {
+          setInLounge(false);
+          setTransitioning(false);
+        }}
         onConnect={handleConnectWallet}
         onDisconnect={() => setWallet(null)}
       />
@@ -130,6 +134,23 @@ export default function Home() {
         </div>
       </section>
 
+      {transitioning && (
+        <div className="transition-overlay" role="presentation">
+          <video
+            className="transition-video"
+            src={REFERENCE_VIDEO}
+            autoPlay
+            playsInline
+            muted={!soundEnabled}
+            onEnded={handleVideoEnded}
+          />
+          <div className="transition-caption">
+            <span>ENTERING THE LOUNGE…</span>
+            <button type="button" onClick={handleVideoEnded}>SKIP</button>
+          </div>
+        </div>
+      )}
+
       {walletError && (
         <div className="wallet-toast" role="status">
           <span>{walletError}</span>
@@ -162,4 +183,4 @@ export default function Home() {
   );
 }
 
-export { REFERENCE_ARTWORK };
+export { REFERENCE_ARTWORK, REFERENCE_VIDEO };
