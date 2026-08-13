@@ -14,3 +14,11 @@
 - [x] Add localStorage fallback for ordinary browser previews.
 - [x] Verify balance and statistics restore after leaving and re-entering the lounge.
 - [x] Save a project checkpoint and deliver the persistent stats update.
+
+## Telegram CloudStorage Compatibility Fix
+
+- [x] Guard CloudStorage access behind the Telegram WebApp version capability check.
+- [x] Prevent unsupported getter access from throwing during page initialization.
+- [x] Preserve localStorage fallback for Telegram clients below Bot API 6.9 and browser previews.
+- [x] Validate the unsupported-version path and production build.
+- [x] Save a project checkpoint and deliver the fix.

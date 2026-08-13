@@ -30,6 +30,8 @@ type TelegramCloudStorage = {
 };
 
 type TelegramWebApp = {
+  version?: string;
+  isVersionAtLeast?: (version: string) => boolean;
   ready: () => void;
   expand: () => void;
   enableClosingConfirmation?: () => void;
@@ -148,9 +150,42 @@ export function initTelegram(): TelegramProfile | null {
   return user ? mapUser(user) : null;
 }
 
+function compareVersions(current: string | undefined, required: string) {
+  if (!current) return false;
+  const currentParts = current.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const requiredParts = required.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const length = Math.max(currentParts.length, requiredParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const currentPart = currentParts[index] ?? 0;
+    const requiredPart = requiredParts[index] ?? 0;
+    if (currentPart !== requiredPart) return currentPart > requiredPart;
+  }
+  return true;
+}
+
+function supportsTelegramCloudStorage(webApp: TelegramWebApp) {
+  try {
+    if (typeof webApp.isVersionAtLeast === "function") {
+      return webApp.isVersionAtLeast("6.9");
+    }
+    return compareVersions(webApp.version, "6.9");
+  } catch {
+    return false;
+  }
+}
+
 function getTelegramCloudStorage() {
   if (typeof window === "undefined") return null;
-  return window.Telegram?.WebApp?.CloudStorage ?? null;
+  const webApp = window.Telegram?.WebApp;
+  if (!webApp || !supportsTelegramCloudStorage(webApp)) return null;
+
+  // Telegram's SDK exposes CloudStorage through a guarded getter. Access it
+  // only after the version check; older clients throw when it is read.
+  try {
+    return webApp.CloudStorage ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function readBrowserProgress(): PlayerProgress {
