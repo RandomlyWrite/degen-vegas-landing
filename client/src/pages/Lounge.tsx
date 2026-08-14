@@ -1,10 +1,15 @@
-import { ArrowLeft, CircleDollarSign, Copy, Crown, Dices, ShieldCheck, Sparkles, WalletCards } from "lucide-react";
+/*
+ * DEGEN VEGAS Lounge — the entrance's smoky casino language with a clearer
+ * operator surface: Telegram identity, virtual chips, and free refill state.
+ */
 import { useEffect, useMemo, useState } from "react";
-import type { WalletSnapshot } from "@/lib/wallet";
-import { formatChain, shortAddress } from "@/lib/wallet";
+import { ArrowLeft, CircleDollarSign, Copy, Crown, Dices, ShieldCheck, Sparkles } from "lucide-react";
 import {
   applyGameResult,
+  canClaimFreeRefill,
+  claimFreeRefill,
   createDefaultPlayerProgress,
+  getRefillRemainingMs,
   loadPlayerProgress,
   savePlayerProgress,
   telegramDisplayName,
@@ -17,11 +22,8 @@ import {
 type GameId = "dice" | "roulette" | "craps";
 
 type LoungeProps = {
-  wallet: WalletSnapshot | null;
   telegramProfile: TelegramProfile | null;
   onBack: () => void;
-  onConnect: () => void;
-  onDisconnect: () => void;
 };
 
 const GAME_OPTIONS: Array<{
@@ -58,22 +60,33 @@ const GAME_OPTIONS: Array<{
   },
 ];
 
-export default function Lounge({
-  wallet,
-  telegramProfile,
-  onBack, onConnect, onDisconnect }: LoungeProps) {
+function formatCooldown(milliseconds: number) {
+  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+export default function Lounge({ telegramProfile, onBack }: LoungeProps) {
   const [selectedGame, setSelectedGame] = useState<GameId>("dice");
   const [progress, setProgress] = useState<PlayerProgress>(() => createDefaultPlayerProgress());
   const [hydrating, setHydrating] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
+  const [showChipLedger, setShowChipLedger] = useState(false);
   const [lastResult, setLastResult] = useState("The house is watching.");
   const [diceCall, setDiceCall] = useState<"high" | "low">("high");
   const [rouletteColor, setRouletteColor] = useState<"red" | "black">("red");
-  const [history, setHistory] = useState<string[]>(["You walked in with 250 demo chips."]);
+  const [history, setHistory] = useState<string[]>(["You walked in with 250 free chips."]);
 
   const currentGame = useMemo(
     () => GAME_OPTIONS.find((game) => game.id === selectedGame) ?? GAME_OPTIONS[0],
     [selectedGame],
   );
+  const refillRemaining = getRefillRemainingMs(progress, now);
+  const refillReady = canClaimFreeRefill(progress, now);
+  const displayName = telegramDisplayName(telegramProfile);
+  const playerId = telegramProfile?.username ? `@${telegramProfile.username}` : displayName;
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +105,11 @@ export default function Lounge({
     };
   }, [telegramProfile?.id]);
 
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const addHistory = (message: string) => {
     setHistory((items) => [message, ...items].slice(0, 4));
   };
@@ -102,6 +120,18 @@ export default function Lounge({
     void savePlayerProgress(next);
     setLastResult(result);
     addHistory(`${game.toUpperCase()}: ${result} (${delta > 0 ? "+" : ""}${delta} chips)`);
+  };
+
+  const handleFreeRefill = () => {
+    const next = claimFreeRefill(progress, now);
+    if (!next) {
+      setLastResult(`Refill locked. ${formatCooldown(refillRemaining)} until the house gets generous.`);
+      return;
+    }
+    setProgress(next);
+    void savePlayerProgress(next);
+    setLastResult("FREE REFILL CLAIMED. IMAGINARY WEALTH RESTORED.");
+    addHistory("REFILL: +250 free chips. The house pretends this is sustainable.");
   };
 
   const playDice = () => {
@@ -141,38 +171,49 @@ export default function Lounge({
       <div className="lounge-noise" aria-hidden="true" />
       <header className="lounge-header">
         <button className="lounge-back" type="button" onClick={onBack}>
-          <ArrowLeft size={16} /> LEAVE THE DOOR
+          <ArrowLeft size={16} /> EXIT
         </button>
         <div className="lounge-brand">
           <span>DEGEN VEGAS</span>
           <small>THE LOUNGE / PLAYER TABLES</small>
         </div>
         <div className="lounge-account">
-          <div className="lounge-player" title={telegramDisplayName(telegramProfile)}>
+          <div className="lounge-player" title={displayName}>
             {telegramProfile?.photoUrl ? (
               <img src={telegramProfile.photoUrl} alt="" className="lounge-player-avatar" />
             ) : (
               <span className="lounge-player-avatar lounge-player-avatar--fallback">{telegramInitials(telegramProfile)}</span>
             )}
             <span className="lounge-player-copy">
-              <strong>{telegramDisplayName(telegramProfile)}</strong>
+              <strong>{displayName}</strong>
               <small>{telegramProfile ? "TELEGRAM PLAYER" : "BROWSER PREVIEW"}</small>
             </span>
           </div>
-          <div className="lounge-wallet">
-            {wallet ? (
-              <button className="wallet-pill wallet-pill--connected" type="button" onClick={onDisconnect} title="Disconnect wallet">
-                <span className="wallet-status-dot" />
-                <span>{shortAddress(wallet.address)}</span>
-                <small>{formatChain(wallet.chainId)}</small>
-              </button>
-            ) : (
-              <button className="wallet-pill" type="button" onClick={onConnect}>
-                <WalletCards size={15} /> CONNECT WALLET
-              </button>
-            )}
-          </div>
+          <button
+            className="chip-balance-pill"
+            type="button"
+            onClick={() => setShowChipLedger((visible) => !visible)}
+            aria-expanded={showChipLedger}
+            aria-controls="chip-ledger"
+          >
+            <span>CHIPS</span>
+            <strong>{progress.chips}</strong>
+          </button>
         </div>
+        {showChipLedger && (
+          <section className="chip-ledger" id="chip-ledger" aria-label="Virtual chip stack">
+            <div className="chip-ledger__heading"><span>CHIP STACK</span><small>{playerId}</small></div>
+            <div className="chip-ledger__row"><span>Balance</span><strong>{progress.chips}</strong></div>
+            <div className="chip-ledger__row"><span>Total plays</span><strong>{progress.stats.totalPlays}</strong></div>
+            <div className="chip-ledger__row"><span>Wins / losses</span><strong>{progress.stats.totalWins} / {progress.stats.totalLosses}</strong></div>
+            <div className="chip-ledger__footer">
+              <span>{refillReady ? "REFILL READY" : `NEXT REFILL ${formatCooldown(refillRemaining)}`}</span>
+              <button type="button" onClick={handleFreeRefill} disabled={!refillReady || hydrating}>
+                {refillReady ? "CLAIM +250" : "COOLDOWN"}
+              </button>
+            </div>
+          </section>
+        )}
       </header>
 
       <section className="lounge-hero">
@@ -182,22 +223,22 @@ export default function Lounge({
           <p className="lounge-copy">Three tables. One questionable decision at a time.</p>
         </div>
         <div className="lounge-stat-block">
-          <span>DEMO CHIP STACK</span>
+          <span>YOUR CHIP STACK</span>
           <strong>{progress.chips}</strong>
           <small>{hydrating ? "LOADING PLAYER LEDGER…" : `${progress.stats.totalPlays} PLAYS / VIRTUAL ONLY`}</small>
         </div>
       </section>
 
-      {!wallet && (
-        <section className="wallet-rail">
-          <div className="wallet-rail-icon"><WalletCards size={22} /></div>
-          <div>
-            <strong>Bring your wallet to the door.</strong>
-            <p>Connect an injected EVM wallet to personalize the player badge. No signature or transaction is requested in this demo.</p>
-          </div>
-          <button type="button" className="wallet-rail-action" onClick={onConnect}>CONNECT</button>
-        </section>
-      )}
+      <section className="chip-rail" aria-label="Free chip refill">
+        <div className="chip-rail-icon"><CircleDollarSign size={22} /></div>
+        <div>
+          <strong>FREE CHIPS / VIRTUAL ONLY</strong>
+          <p>{refillReady ? "The house is feeling charitable. Claim 250 chips before it regrets you." : `Next refill in ${formatCooldown(refillRemaining)}. No deposit. No withdrawal. No dignity.`}</p>
+        </div>
+        <button type="button" className="chip-rail-action" onClick={handleFreeRefill} disabled={!refillReady || hydrating}>
+          {refillReady ? "CLAIM REFILL" : formatCooldown(refillRemaining)}
+        </button>
+      </section>
 
       <section className="table-layout">
         <div className="game-list" aria-label="Available game tables">
@@ -288,7 +329,7 @@ export default function Lounge({
           <span className="history-label">TABLE TAPE</span>
           {history.map((item, index) => <span key={`${item}-${index}`}>{item}</span>)}
         </div>
-        <button className="copy-button" type="button" onClick={() => navigator.clipboard?.writeText(wallet?.address ?? "DEGEN VEGAS DEMO") }>
+        <button className="copy-button" type="button" onClick={() => navigator.clipboard?.writeText(playerId)}>
           <Copy size={13} /> COPY PLAYER ID
         </button>
       </footer>

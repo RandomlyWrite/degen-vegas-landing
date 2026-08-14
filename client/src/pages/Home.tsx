@@ -1,11 +1,13 @@
+/*
+ * DEGEN VEGAS Entrance — illustrated poster theater with an intentional,
+ * door-focused push-in. Wallet state is not part of this product surface.
+ */
 import { Volume2, VolumeX, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import Lounge from "@/pages/Lounge";
-import { connectWallet, readWalletSnapshot, type WalletSnapshot } from "@/lib/wallet";
 import { initTelegram, type TelegramProfile } from "@/lib/telegram";
 
 const REFERENCE_ARTWORK = "/manus-storage/degen-vegas-reference_3873d095.png";
-const REFERENCE_VIDEO = "/manus-storage/_users_01912768-4157-4192-a5b0-0f6e69c96add_generated_e7395394-fd94-4575-b269-50289fb74e2e_generated_video_a082a15c.mp4";
 
 type DialogKind = "fairness" | null;
 
@@ -14,38 +16,20 @@ export default function Home() {
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [transitioning, setTransitioning] = useState(false);
   const [inLounge, setInLounge] = useState(false);
-  const [wallet, setWallet] = useState<WalletSnapshot | null>(null);
   const [telegramProfile, setTelegramProfile] = useState<TelegramProfile | null>(null);
-  const [walletError, setWalletError] = useState("");
-
-  useEffect(() => {
-    void readWalletSnapshot().then(setWallet).catch(() => setWallet(null));
-
-    const provider = typeof window !== "undefined" ? window.ethereum : undefined;
-    if (!provider?.on) return;
-
-    const handleAccountsChanged = (accounts: unknown) => {
-      if (!Array.isArray(accounts) || !accounts[0]) {
-        setWallet(null);
-        return;
-      }
-      void readWalletSnapshot().then(setWallet).catch(() => setWallet(null));
-    };
-    const handleChainChanged = () => {
-      void readWalletSnapshot().then(setWallet).catch(() => setWallet(null));
-    };
-
-    provider.on("accountsChanged", handleAccountsChanged);
-    provider.on("chainChanged", handleChainChanged);
-    return () => {
-      provider.removeListener?.("accountsChanged", handleAccountsChanged);
-      provider.removeListener?.("chainChanged", handleChainChanged);
-    };
-  }, []);
 
   useEffect(() => {
     setTelegramProfile(initTelegram());
   }, []);
+
+  useEffect(() => {
+    if (!transitioning) return;
+    const timer = window.setTimeout(() => {
+      setTransitioning(false);
+      setInLounge(true);
+    }, 1050);
+    return () => window.clearTimeout(timer);
+  }, [transitioning]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -56,37 +40,19 @@ export default function Home() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const handleConnectWallet = async () => {
-    setWalletError("");
-    try {
-      const snapshot = await connectWallet();
-      setWallet(snapshot);
-    } catch (error) {
-      setWalletError(error instanceof Error ? error.message : "Wallet connection was cancelled.");
-    }
-  };
-
   const handleEnterLounge = () => {
     setDialog(null);
     setTransitioning(true);
   };
 
-  const handleVideoEnded = () => {
-    setTransitioning(false);
-    setInLounge(true);
-  };
-
   if (inLounge) {
     return (
       <Lounge
-        wallet={wallet}
         telegramProfile={telegramProfile}
         onBack={() => {
           setInLounge(false);
           setTransitioning(false);
         }}
-        onConnect={handleConnectWallet}
-        onDisconnect={() => setWallet(null)}
       />
     );
   }
@@ -142,26 +108,17 @@ export default function Home() {
       </section>
 
       {transitioning && (
-        <div className="transition-overlay" role="presentation">
-          <video
-            className="transition-video"
-            src={REFERENCE_VIDEO}
-            autoPlay
-            playsInline
-            muted={!soundEnabled}
-            onEnded={handleVideoEnded}
-          />
-          <div className="transition-caption">
-            <span>ENTERING THE LOUNGE…</span>
-            <button type="button" onClick={handleVideoEnded}>SKIP</button>
+        <div className="transition-overlay transition-overlay--door-push" role="status" aria-live="polite" aria-label="Entering the lounge">
+          <div className="transition-poster-layer transition-poster-layer--base" aria-hidden="true">
+            <img src={REFERENCE_ARTWORK} alt="" draggable={false} />
           </div>
-        </div>
-      )}
-
-      {walletError && (
-        <div className="wallet-toast" role="status">
-          <span>{walletError}</span>
-          <button type="button" onClick={() => setWalletError("")} aria-label="Dismiss wallet error"><X size={15} /></button>
+          <div className="transition-poster-layer transition-poster-layer--door" aria-hidden="true">
+            <img src={REFERENCE_ARTWORK} alt="" draggable={false} />
+          </div>
+          <div className="transition-leaderboard-fade" aria-hidden="true" />
+          <div className="transition-smoke-layer" aria-hidden="true" />
+          <div className="transition-light-bloom" aria-hidden="true" />
+          <span className="transition-caption">ENTERING…</span>
         </div>
       )}
 
@@ -190,4 +147,4 @@ export default function Home() {
   );
 }
 
-export { REFERENCE_ARTWORK, REFERENCE_VIDEO };
+export { REFERENCE_ARTWORK };

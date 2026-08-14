@@ -22,3 +22,12 @@
 - [x] Preserve localStorage fallback for Telegram clients below Bot API 6.9 and browser previews.
 - [x] Validate the unsupported-version path and production build.
 - [x] Save a project checkpoint and deliver the fix.
+
+## Priority Lounge and Entrance Refactor
+
+- [ ] Remove all wallet connection UI and wallet-specific copy from the lounge.
+- [ ] Refactor the lounge header around Telegram identity, virtual chips, and refill cooldown.
+- [ ] Add a free virtual-chip refill action with a visible cooldown.
+- [ ] Split the entrance into independently fading layers and target the doors during the push-in.
+- [ ] Verify wallet removal, refill state, transition timing, and responsive behavior.
+- [ ] Save a project checkpoint and deliver the refactor.

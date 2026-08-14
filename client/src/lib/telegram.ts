@@ -49,6 +49,8 @@ declare global {
 }
 
 export const PLAYER_STORAGE_KEY = "degen_vegas_profile_v1";
+export const FREE_REFILL_AMOUNT = 250;
+export const FREE_REFILL_COOLDOWN_MS = 2 * 60 * 60 * 1000;
 export type GameKey = "dice" | "roulette" | "craps";
 
 export type GameStat = {
@@ -70,6 +72,7 @@ export type PlayerStats = {
 
 export type PlayerProgress = {
   chips: number;
+  refillAvailableAt: number | null;
   stats: PlayerStats;
 };
 
@@ -80,6 +83,7 @@ function freshGameStat(): GameStat {
 export function createDefaultPlayerProgress(): PlayerProgress {
   return {
     chips: 250,
+    refillAvailableAt: null,
     stats: {
       totalPlays: 0,
       totalWins: 0,
@@ -112,6 +116,7 @@ export function normalizePlayerProgress(value: unknown): PlayerProgress {
   const rawStats = input.stats && typeof input.stats === "object" ? input.stats as Partial<PlayerStats> : {};
   return {
     chips: isFiniteNumber(input.chips) ? Math.max(0, Math.round(input.chips)) : fallback.chips,
+    refillAvailableAt: isFiniteNumber(input.refillAvailableAt) ? Math.max(0, Math.floor(input.refillAvailableAt)) : null,
     stats: {
       totalPlays: isFiniteNumber(rawStats.totalPlays) ? Math.max(0, Math.floor(rawStats.totalPlays)) : 0,
       totalWins: isFiniteNumber(rawStats.totalWins) ? Math.max(0, Math.floor(rawStats.totalWins)) : 0,
@@ -265,6 +270,25 @@ export async function savePlayerProgress(progress: PlayerProgress): Promise<"tel
   }
   writeBrowserProgress(normalized);
   return "browser";
+}
+
+export function getRefillRemainingMs(progress: PlayerProgress, now = Date.now()) {
+  if (!progress.refillAvailableAt) return 0;
+  return Math.max(0, progress.refillAvailableAt - now);
+}
+
+export function canClaimFreeRefill(progress: PlayerProgress, now = Date.now()) {
+  return getRefillRemainingMs(progress, now) === 0;
+}
+
+export function claimFreeRefill(progress: PlayerProgress, now = Date.now()): PlayerProgress | null {
+  const normalized = normalizePlayerProgress(progress);
+  if (!canClaimFreeRefill(normalized, now)) return null;
+  return {
+    ...normalized,
+    chips: normalized.chips + FREE_REFILL_AMOUNT,
+    refillAvailableAt: now + FREE_REFILL_COOLDOWN_MS,
+  };
 }
 
 export function applyGameResult(progress: PlayerProgress, game: GameKey, won: boolean, delta: number): PlayerProgress {
