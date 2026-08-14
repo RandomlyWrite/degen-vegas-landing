@@ -51,7 +51,7 @@ declare global {
 export const PLAYER_STORAGE_KEY = "degen_vegas_profile_v1";
 export const FREE_REFILL_AMOUNT = 250;
 export const FREE_REFILL_COOLDOWN_MS = 2 * 60 * 60 * 1000;
-export type GameKey = "dice" | "roulette" | "craps";
+export type GameKey = "dice" | "roulette" | "craps" | "dontSplode";
 
 export type GameStat = {
   plays: number;
@@ -68,6 +68,7 @@ export type PlayerStats = {
   dice: GameStat;
   roulette: GameStat;
   craps: GameStat;
+  dontSplode: GameStat;
 };
 
 export type PlayerProgress = {
@@ -92,6 +93,7 @@ export function createDefaultPlayerProgress(): PlayerProgress {
       dice: freshGameStat(),
       roulette: freshGameStat(),
       craps: freshGameStat(),
+      dontSplode: freshGameStat(),
     },
   };
 }
@@ -125,6 +127,7 @@ export function normalizePlayerProgress(value: unknown): PlayerProgress {
       dice: normalizeGameStat(rawStats.dice),
       roulette: normalizeGameStat(rawStats.roulette),
       craps: normalizeGameStat(rawStats.craps),
+      dontSplode: normalizeGameStat(rawStats.dontSplode),
     },
   };
 }

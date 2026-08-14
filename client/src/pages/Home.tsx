@@ -15,7 +15,10 @@ export default function Home() {
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [transitioning, setTransitioning] = useState(false);
-  const [inLounge, setInLounge] = useState(false);
+  const [inLounge, setInLounge] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return new URLSearchParams(window.location.search).get("table") === "99";
+  });
   const [telegramProfile, setTelegramProfile] = useState<TelegramProfile | null>(null);
 
   useEffect(() => {

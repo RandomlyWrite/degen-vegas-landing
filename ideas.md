@@ -80,6 +80,10 @@ A bold, scratchy "DEGEN VEGAS" text with a playing card symbol (Queen of Clubs) 
 
 **Warm Coral/Pink (#E85D5D or similar):** Used for the primary neon sign. This color is unmistakably DEGEN VEGAS—warm, slightly faded, and nostalgic.
 
+## Style Decisions
+
+The lounge now carries its Rubber-hose Noir direction into functional game tables through crooked Queen-of-Clubs corner marks, cross-hatched felt textures, tarnished border treatments, and a distressed hand-painted wordmark rather than a clean typeset logo. The active Don’t Splode table includes an unsettling button-eyed gremlin motif and a more theatrical coral fuse treatment; this preserves legibility while making the interaction feel like a late-night cursed casino sign rather than a dashboard.
+
 ---
 
 ## Visual Reference
