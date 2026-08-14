@@ -153,6 +153,9 @@ export default function Lounge({
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("fairness") === "history";
   });
+  const [roundVerification, setRoundVerification] = useState<Record<string, "checking" | "valid" | "invalid" | "error">>({});
+  const [copiedProof, setCopiedProof] = useState<string | null>(null);
+  const [copyProofError, setCopyProofError] = useState<string | null>(null);
 
   const currentGame = useMemo(
     () => GAME_OPTIONS.find((game) => game.id === selectedGame) ?? GAME_OPTIONS[0],
@@ -193,6 +196,39 @@ export default function Lounge({
 
   const addHistory = (message: string) => {
     setHistory((items) => [message, ...items].slice(0, 4));
+  };
+
+  const verifyFairnessRound = async (round: FairnessRound) => {
+    setRoundVerification((states) => ({ ...states, [round.id]: "checking" }));
+    try {
+      const recomputed = await createCommitment(round.serverSeed, round.crashPoint);
+      setRoundVerification((states) => ({ ...states, [round.id]: recomputed === round.commitment ? "valid" : "invalid" }));
+    } catch {
+      setRoundVerification((states) => ({ ...states, [round.id]: "error" }));
+    }
+  };
+
+  const copyFairnessProof = async (round: FairnessRound) => {
+    const proof = [
+      "DON’T SPLODE — TABLE 99 FAIRNESS PROOF",
+      `Commitment (SHA-256 seed:crash): ${round.commitment}`,
+      `Server seed: ${round.serverSeed}`,
+      `Crash point: ${round.crashPoint.toFixed(2)}x`,
+      `Pot: ${round.pot} ⬡`,
+      `Passes: ${round.passes}`,
+      `Eliminated: ${round.eliminated}`,
+      "Verification payload: server_seed:crash_point",
+    ].join("\n");
+
+    setCopyProofError(null);
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard access is unavailable.");
+      await navigator.clipboard.writeText(proof);
+      setCopiedProof(round.id);
+      window.setTimeout(() => setCopiedProof((id) => id === round.id ? null : id), 1800);
+    } catch {
+      setCopyProofError("Clipboard unavailable — select the proof details manually.");
+    }
   };
 
   const commitGameResult = (game: GameKey, won: boolean, delta: number, result: string) => {
@@ -634,10 +670,22 @@ export default function Lounge({
                       <div><dt>SERVER SEED</dt><dd>{round.serverSeed}</dd></div>
                       <div><dt>CRASH POINT</dt><dd>{round.crashPoint.toFixed(2)}x</dd></div>
                     </dl>
+                    <div className="fairness-round__actions">
+                      <button className="fairness-verify-button" type="button" onClick={() => void verifyFairnessRound(round)} disabled={roundVerification[round.id] === "checking"}>
+                        <ShieldCheck size={13} /> {roundVerification[round.id] === "checking" ? "CHECKING…" : "VERIFY HASH"}
+                      </button>
+                      <button className="fairness-copy-proof" type="button" onClick={() => void copyFairnessProof(round)}>
+                        <Copy size={13} /> {copiedProof === round.id ? "PROOF COPIED" : "COPY PROOF"}
+                      </button>
+                    </div>
+                    {roundVerification[round.id] === "valid" && <p className="fairness-verdict fairness-verdict--valid">VERIFIED — recomputed SHA-256 matches the pre-fuse commitment.</p>}
+                    {roundVerification[round.id] === "invalid" && <p className="fairness-verdict fairness-verdict--invalid">MISMATCH — the revealed values do not reproduce this commitment.</p>}
+                    {roundVerification[round.id] === "error" && <p className="fairness-verdict fairness-verdict--invalid">VERIFY FAILED — this client could not recompute the hash.</p>}
                   </li>
                 ))}
               </ol>
             )}
+            {copyProofError && <p className="fairness-copy-error" role="status">{copyProofError}</p>}
           </aside>
         </div>
       )}

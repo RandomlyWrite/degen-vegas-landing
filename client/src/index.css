@@ -2039,6 +2039,82 @@
   line-height: 1.35;
 }
 
+.fairness-round__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+  margin-top: 0.7rem;
+}
+
+.fairness-verify-button,
+.fairness-copy-proof {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.32rem;
+  min-height: 2rem;
+  padding: 0.48rem 0.42rem;
+  border: 1px solid rgba(255, 158, 117, 0.36);
+  color: #ffd5bb;
+  background: rgba(77, 27, 24, 0.52);
+  font: 700 0.49rem / 1 'IBM Plex Mono', monospace;
+  letter-spacing: 0.06em;
+  transition: transform 160ms ease-out, border-color 160ms ease-out, background 160ms ease-out, color 160ms ease-out;
+}
+
+.fairness-verify-button:hover:not(:disabled),
+.fairness-verify-button:focus-visible,
+.fairness-copy-proof:hover,
+.fairness-copy-proof:focus-visible {
+  border-color: #ff936d;
+  color: #fff0e4;
+  background: rgba(178, 57, 39, 0.54);
+  transform: translateY(-1px);
+}
+
+.fairness-verify-button:disabled {
+  cursor: wait;
+  opacity: 0.56;
+}
+
+.fairness-copy-proof {
+  color: #d3fff0;
+  border-color: rgba(96, 218, 184, 0.34);
+  background: rgba(22, 84, 71, 0.28);
+}
+
+.fairness-copy-proof:hover,
+.fairness-copy-proof:focus-visible {
+  border-color: #9fffe1;
+  background: rgba(22, 112, 91, 0.44);
+}
+
+.fairness-verdict,
+.fairness-copy-error {
+  margin: 0.6rem 0 0;
+  padding: 0.45rem 0.5rem;
+  border-left: 2px solid;
+  font-size: 0.5rem;
+  line-height: 1.45;
+}
+
+.fairness-verdict--valid {
+  border-color: #7dffb3;
+  color: #caffdd;
+  background: rgba(31, 126, 88, 0.18);
+}
+
+.fairness-verdict--invalid,
+.fairness-copy-error {
+  border-color: #ff7f67;
+  color: #ffd2c6;
+  background: rgba(145, 48, 35, 0.2);
+}
+
+.fairness-copy-error {
+  margin-top: 0.75rem;
+}
+
 @keyframes fairness-drawer-in {
   from { opacity: 0; transform: translateX(26px); }
   to { opacity: 1; transform: translateX(0); }
@@ -2200,6 +2276,10 @@
   .fairness-drawer {
     width: 100%;
     padding: 1rem;
+  }
+
+  .fairness-round__actions {
+    grid-template-columns: 1fr;
   }
 
   .lounge-footer {
